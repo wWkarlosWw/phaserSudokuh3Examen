@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sudoku Premium Phaser</title>
+    <!-- Cargamos Phaser desde un CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: #1a1a2e;
+        font-family: sans-serif;
+      }
+      canvas {
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+        border-radius: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // ESCENA 1: MENÚ PRINCIPAL
+      class MenuScene extends Phaser.Scene {
+        constructor() {
+          super({ key: "MenuScene" });
+        }
+
+        create() {
+          this.cameras.main.setBackgroundColor("#16213e");
+
+          // Título
+          this.add
+            .text(300, 150, "SUDOKU", {
+              fontFamily: "Arial",
+              fontSize: "54px",
+              color: "#0f3460",
+              fontStyle: "bold",
+              stroke: "#e94560",
+              strokeThickness: 6,
+            })
+            .setOrigin(0.5);
+
+          // Botones
+          this.createMenuButton(300, 300, "Fácil", "easy");
+          this.createMenuButton(300, 400, "Medio", "medium");
+          this.createMenuButton(300, 500, "Difícil", "hard");
+        }
+
+        createMenuButton(x, y, text, difficulty) {
+          let btnGraphic = this.add.graphics();
+          let drawBtn = (color) => {
+            btnGraphic.clear();
+            btnGraphic.fillStyle(color, 1);
+            btnGraphic.fillRoundedRect(x - 100, y - 30, 200, 60, 15);
+          };
+          drawBtn(0x0f3460); // Color inicial del botón
+
+          let btnText = this.add
+            .text(x, y, text, {
+              fontFamily: "Arial",
+              fontSize: "24px",
+              color: "#ffffff",
+              fontStyle: "bold",
+            })
+            .setOrigin(0.5);
+
+          // Zona interactiva para el hover y el clic
+          let zone = this.add
+            .zone(x, y, 200, 60)
+            .setInteractive({ useHandCursor: true });
+
+          zone.on("pointerover", () => {
+            drawBtn(0xe94560);
+            btnText.setScale(1.1);
+          });
+          zone.on("pointerout", () => {
+            drawBtn(0x0f3460);
+            btnText.setScale(1);
+          });
+          zone.on("pointerdown", () => {
+            // Iniciamos juego
+            this.scene.start("GameScene", { difficulty: difficulty });
+          });
+        }
+      }
+
+      // ESCENA 2: JUEGO
+      class GameScene extends Phaser.Scene {
+        constructor() {
+          super({ key: "GameScene" });
+          this.cellSize = 48; // Tamaño de cada cuadro
+          this.boardOffset = { x: 84, y: 120 }; // Posición del tablero en pantalla
+        }
+
+        init(data) {
+          // Variables que se reinician en cada partida
+          this.difficulty = data.difficulty || "easy";
+          this.selectedCell = null;
+          this.seconds = 0;
+          this.cellsText = Array(9)
+            .fill()
+            .map(() => Array(9).fill(null));
+          this.generateBoard(); // Generamos un tablero nuevo
+        }
+
+        create() {
+          this.cameras.main.setBackgroundColor("#1a1a2e");
+
+          // UI
+          this.createUI();
+
+          // Tablero
+          this.drawGrid();
+
+          // Resaltado
+          this.highlightGraphic = this.add.graphics();
+
+          // Números
+          this.drawNumbers();
+
+          //-input
+          this.createNumpad();
+          this.setupBoardInput();
+
+          // Timer
+          this.timerEvent = this.time.addEvent({
+            delay: 1000,
+            callback: this.updateTimer,
+            callbackScope: this,
+            loop: true,
+          });
+        }
+
+        createUI() {
+          // Cabecera
+          let header = this.add.graphics();
+          header.fillStyle(0x0f3460, 1);
+          header.fillRect(0, 0, 600, 80);
+
+          // Volver
+          let backZone = this.add
+            .zone(50, 40, 80, 40)
+            .setInteractive({ useHandCursor: true });
+          let backText = this.add
+            .text(50, 40, "◄ Volver", {
+              fontFamily: "Arial",
+              fontSize: "20px",
+              color: "#ffffff",
+            })
+            .setOrigin(0.5);
+          backZone.on("pointerdown", () => this.scene.start("MenuScene"));
+          backZone.on("pointerover", () => backText.setColor("#e94560"));
+          backZone.on("pointerout", () => backText.setColor("#ffffff"));
+
+          // Etiqueta de Dificultad
+          let diffLabel =
+            this.difficulty === "easy"
+              ? "FÁCIL"
+              : this.difficulty === "medium"
+                ? "MEDIO"
+                : "DIFÍCIL";
+          this.add
+            .text(300, 40, diffLabel, {
+              fontFamily: "Arial",
+              fontSize: "24px",
+              color: "#e94560",
+              fontStyle: "bold",
+            })
+            .setOrigin(0.5);
+
+          // Texto del Temporizador
+          this.timerText = this.add
+            .text(520, 40, "00:00", {
+              fontFamily: "Monospace",
+              fontSize: "22px",
+              color: "#ffffff",
+            })
+            .setOrigin(0.5);
+        }
+
+        updateTimer() {
+          this.seconds++;
+          let min = Math.floor(this.seconds / 60)
+            .toString()
+            .padStart(2, "0");
+          let sec = (this.seconds % 60).toString().padStart(2, "0");
+          this.timerText.setText(`${min}:${sec}`);
+        }
+
+        generateBoard() {
+          // Tablero base completamente resuelto y válido
+          let base = [
+            [5, 3, 4, 6, 7, 8, 9, 1, 2],
+            [6, 7, 2, 1, 9, 5, 3, 4, 8],
+            [1, 9, 8, 3, 4, 2, 5, 6, 7],
+            [8, 5, 9, 7, 6, 1, 4, 2, 3],
+            [4, 2, 6, 8, 5, 3, 7, 9, 1],
+            [7, 1, 3, 9, 2, 4, 8, 5, 6],
+            [9, 6, 1, 5, 3, 7, 2, 8, 4],
+            [2, 8, 7, 4, 1, 9, 6, 3, 5],
+            [3, 4, 5, 2, 8, 6, 1, 7, 9],
+          ];
+
+          // Mezclamos el mapa de números para que el tablero se sienta diferente cada vez
+          let map = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+          Phaser.Utils.Array.Shuffle(map);
+
+          this.solution = [];
+          this.puzzle = [];
+
+          for (let r = 0; r < 9; r++) {
+            this.solution[r] = [];
+            this.puzzle[r] = [];
+            for (let c = 0; c < 9; c++) {
+              let val = map[base[r][c] - 1]; // Intercambiamos los valores
+              this.solution[r][c] = val;
+              this.puzzle[r][c] = val; // Este será el tablero a jugar
+            }
+          }
+
+          // Vaciamos casillas según la dificultad seleccionada
+          let holes = 30; // Fácil
+          if (this.difficulty === "medium") holes = 45; // Medio
+          if (this.difficulty === "hard") holes = 55; // Difícil
+
+          let removed = 0;
+          while (removed < holes) {
+            let r = Phaser.Math.Between(0, 8);
+            let c = Phaser.Math.Between(0, 8);
+            if (this.puzzle[r][c] !== 0) {
+              this.puzzle[r][c] = 0; // Borramos el número
+              removed++;
+            }
+          }
+        }
+
+        drawGrid() {
+          let bg = this.add.graphics();
+          // Fondo blanco del tablero
+          bg.fillStyle(0xffffff, 1);
+          bg.fillRoundedRect(
+            this.boardOffset.x - 5,
+            this.boardOffset.y - 5,
+            9 * this.cellSize + 10,
+            9 * this.cellSize + 10,
+            10,
+          );
+
+          let lines = this.add.graphics();
+          // Trazado de líneas de la cuadrícula
+          for (let i = 0; i <= 9; i++) {
+            let thickness = i % 3 === 0 ? 3 : 1; // Líneas gruesas para cuadrantes 3x3
+            let color = i % 3 === 0 ? 0x0f3460 : 0xcccccc;
+            lines.lineStyle(thickness, color, 1);
+
+            // Horizontales
+            lines.moveTo(
+              this.boardOffset.x,
+              this.boardOffset.y + i * this.cellSize,
+            );
+            lines.lineTo(
+              this.boardOffset.x + 9 * this.cellSize,
+              this.boardOffset.y + i * this.cellSize,
+            );
+
+            // Verticales
+            lines.moveTo(
+              this.boardOffset.x + i * this.cellSize,
+              this.boardOffset.y,
+            );
+            lines.lineTo(
+              this.boardOffset.x + i * this.cellSize,
+              this.boardOffset.y + 9 * this.cellSize,
+            );
+
+            lines.strokePath();
+          }
+        }
+
+        drawNumbers() {
+          for (let row = 0; row < 9; row++) {
+            for (let col = 0; col < 9; col++) {
+              let value = this.puzzle[row][col];
+              let x =
+                this.boardOffset.x + col * this.cellSize + this.cellSize / 2;
+              let y =
+                this.boardOffset.y + row * this.cellSize + this.cellSize / 2;
+
+              // Pistas iniciales en azul oscuro, celdas a rellenar quedan en blanco de momento
+              let textObj = this.add
+                .text(x, y, value !== 0 ? value.toString() : "", {
+                  fontFamily: "Arial",
+                  fontSize: "26px",
+                  color: "#16213e",
+                  fontStyle: "bold",
+                })
+                .setOrigin(0.5);
+
+              this.cellsText[row][col] = textObj;
+            }
+          }
+        }
+
+        setupBoardInput() {
+          // Creamos una zona interactiva invisible del tamaño exacto del tablero
+          let zone = this.add
+            .zone(
+              this.boardOffset.x + (9 * this.cellSize) / 2,
+              this.boardOffset.y + (9 * this.cellSize) / 2,
+              9 * this.cellSize,
+              9 * this.cellSize,
+            )
+            .setInteractive({ useHandCursor: true });
+
+          zone.on("pointerdown", (pointer) => {
+            // Calculamos en qué columna y fila hizo clic el usuario
+            let col = Math.floor(
+              (pointer.x - this.boardOffset.x) / this.cellSize,
+            );
+            let row = Math.floor(
+              (pointer.y - this.boardOffset.y) / this.cellSize,
+            );
+
+            // Validamos que el clic fue dentro de los márgenes
+            if (col >= 0 && col < 9 && row >= 0 && row < 9) {
+              // Solo permitimos seleccionar si la casilla estaba vacía al generar el tablero
+              // o si es una casilla que el usuario rellenó (para poder cambiarla)
+              if (
+                this.puzzle[row][col] === 0 ||
+                this.cellsText[row][col].style.color !== "#16213e"
+              ) {
+                this.selectCell(row, col);
+              }
+            }
+          });
+        }
+
+        selectCell(row, col) {
+          this.selectedCell = { row, col };
+
+          // Limpiamos el resaltado anterior
+          this.highlightGraphic.clear();
+
+          // Color Neón solicitado con opacidad al 80% (0.8)
+          this.highlightGraphic.fillStyle(0xffeb3b, 0.3);
+
+          // Dibujamos el rectángulo de selección que ahora SÍ estará por encima del fondo blanco
+          this.highlightGraphic.fillRect(
+            this.boardOffset.x + col * this.cellSize,
+            this.boardOffset.y + row * this.cellSize,
+            this.cellSize,
+            this.cellSize,
+          );
+        }
+
+        createNumpad() {
+          const padStartY = 600;
+          const buttons = [1, 2, 3, 4, 5, 6, 7, 8, 9, "X"]; // X para borrar
+
+          buttons.forEach((btn, index) => {
+            let row = Math.floor(index / 5);
+            let col = index % 5;
+            let x = 120 + col * 90;
+            let y = padStartY + row * 80;
+
+            let btnGraphic = this.add.graphics();
+            let drawBtn = (color) => {
+              btnGraphic.clear();
+              btnGraphic.fillStyle(color, 1);
+              btnGraphic.fillRoundedRect(x - 35, y - 35, 70, 70, 15);
+            };
+            drawBtn(0x0f3460);
+
+            this.add
+              .text(x, y, btn.toString(), {
+                fontFamily: "Arial",
+                fontSize: "28px",
+                color: "#ffffff",
+                fontStyle: "bold",
+              })
+              .setOrigin(0.5);
+
+            let zone = this.add
+              .zone(x, y, 70, 70)
+              .setInteractive({ useHandCursor: true });
+
+            zone.on("pointerdown", () => this.handleNumberInput(btn));
+            zone.on("pointerover", () => drawBtn(0xe94560));
+            zone.on("pointerout", () => drawBtn(0x0f3460));
+          });
+        }
+
+        handleNumberInput(value) {
+          if (!this.selectedCell) return; // Si no hay celda seleccionada, ignoramos el teclado
+
+          let { row, col } = this.selectedCell;
+          let textObj = this.cellsText[row][col];
+
+          if (value === "X") {
+            textObj.setText(""); // Borramos visualmente
+            this.puzzle[row][col] = 0; // Borramos en la lógica
+          } else {
+            textObj.setText(value.toString());
+
+            // Validamos contra la solución real
+            if (value === this.solution[row][col]) {
+              textObj.setColor("#0f3460"); // Azul oscuro = ¡Correcto!
+              this.puzzle[row][col] = value;
+              this.checkWinCondition(); // Comprobamos si con este movimiento ganó
+            } else {
+              textObj.setColor("#e94560"); // Rojo/Neón = ¡Incorrecto!
+              this.puzzle[row][col] = -1; // Marcamos como error en la lógica
+            }
+          }
+        }
+
+        checkWinCondition() {
+          let isWin = true;
+          for (let r = 0; r < 9; r++) {
+            for (let c = 0; c < 9; c++) {
+              if (this.puzzle[r][c] !== this.solution[r][c]) {
+                isWin = false;
+                break;
+              }
+            }
+          }
+
+          if (isWin) {
+            this.timerEvent.remove(); // Detenemos el tiempo
+            this.highlightGraphic.clear(); // Quitamos el resaltado de la celda
+            this.selectedCell = null; // Bloqueamos el juego
+
+            // Capa oscura semi-transparente para la victoria
+            let overlay = this.add.graphics();
+            overlay.fillStyle(0x000000, 0.8);
+            overlay.fillRect(0, 0, 600, 800);
+
+            // Mensajes de victoria
+            this.add
+              .text(300, 350, "¡NIVEL COMPLETADO!", {
+                fontFamily: "Arial",
+                fontSize: "40px",
+                color: "#00ffcc",
+                fontStyle: "bold",
+              })
+              .setOrigin(0.5);
+            this.add
+              .text(300, 420, `Tiempo: ${this.timerText.text}`, {
+                fontFamily: "Arial",
+                fontSize: "24px",
+                color: "#ffffff",
+              })
+              .setOrigin(0.5);
+
+            // Botón para volver al menú
+            let backZone = this.add
+              .zone(300, 500, 200, 60)
+              .setInteractive({ useHandCursor: true });
+            let backBtn = this.add.graphics();
+            backBtn.fillStyle(0xe94560, 1);
+            backBtn.fillRoundedRect(200, 470, 200, 60, 15);
+            this.add
+              .text(300, 500, "Menú Principal", {
+                fontFamily: "Arial",
+                fontSize: "22px",
+                color: "#ffffff",
+                fontStyle: "bold",
+              })
+              .setOrigin(0.5);
+
+            backZone.on("pointerdown", () => this.scene.start("MenuScene"));
+          }
+        }
+      }
+
+      // CONFIGURACIÓN
+      const config = {
+        type: Phaser.AUTO,
+        width: 600,
+        height: 800,
+        parent: document.body,
+        scene: [MenuScene, GameScene], // La primera escena en el array carga por defecto
+      };
+
+      const game = new Phaser.Game(config);
+    </script>
+  </body>
+</html>
